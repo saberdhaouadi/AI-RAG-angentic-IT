@@ -1,8 +1,8 @@
-# AI-RAG-Agentic-IT
+# IT-Support-RAG-Agent
 
 > **RAG-Powered Document Ingestion & Intelligent Troubleshooting for IT Support**
 
-An enterprise-grade AI agent that uses Retrieval-Augmented Generation (RAG) to provide grounded, document-backed IT support solutions. Powered by local LLMs (Gemma3/Gemma4), FAISS vector search, and multi-turn conversation memory — runs entirely on your machine.
+An enterprise-grade AI agent that uses Retrieval-Augmented Generation (RAG) to provide grounded, document-backed IT support solutions. Powered by local LLMs (Gemma3/Gemma4), FAISS vector search, an[...]
 
 ---
 
@@ -44,28 +44,28 @@ This RAG solution:
 The RAG pipeline connects four stages: PDF ingestion, embedding, vector storage, and AI generation. Each stage feeds the next, giving your local LLM grounded, document-backed answers.
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌─────────────────┐
-│ PDF Files   │────▶│ Chunk & Parse│────▶│  Embeddings  │────▶│ Vector Store    │
-│             │     │ (ingest_pdf) │     │(SentenceXForm)     │   (FAISS)       │
-└─────────────┘     └──────────────┘     └──────────────┘     └─────────────────┘
+┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌────────────┐
+│ PDF Files   │────▶│ Chunk & Parse│────▶│  Embeddings  │────▶│ Vector Store│
+│             │     │ (ingest_pdf) │     │(SentenceXForm)     │   (FAISS)   │
+└─────────────┘     └──────────────┘     └──────────────┘     └────────────┘
                                                                         ▲
                                                                         │
-                                      ┌──────────────────────────────────┤
-                                      │                                  │
-                           ┌──────────▼──────────┐           ┌──────────┴──────────────┐
-                           │   User Query        │           │  it_agent.py            │
-                           │  (IT Issue)         │────────┬──▶│  (Local LLM RAG Agent)  │
-                           └─────────────────────┘        │   │  (Gemma3/Gemma4)       │
-                                                          │   └─────────────────────────┘
-                                                          │            │
-                                                          │            ▼
-                                                          │   ┌──────────────────┐
-                                                          │   │ Grounded Answer  │
-                                                          └──▶│ + Citations      │
-                                                              └──────────────────┘
+                                        ┌──────────────────────────────┤
+                                        │                              │
+                             ┌──────────▼──────────┐           ┌──────────┴──────────────┐
+                             │   User Query        │           │  it_agent.py            │
+                             │  (IT Issue)         │────────┬──▶│  (Local LLM RAG Agent)  │
+                             └─────────────────────┘        │   │  (Gemma3/Gemma4)       │
+                                                            │   └─────────────────────────┘
+                                                            │            │
+                                                            │            ▼
+                                                            │   ┌──────────────────┐
+                                                            │   │ Grounded Answer  │
+                                                            └──▶│ + Citations      │
+                                                                └──────────────────┘
 ```
 
-💡 **Key Idea**: The local LLM only sees the most relevant document chunks per query — not the entire PDF. This keeps responses fast, accurate, and directly grounded in your documentation. No external API calls, no data leakage.
+💡 **Key Idea**: The local LLM only sees the most relevant document chunks per query — not the entire PDF. This keeps responses fast, accurate, and directly grounded in your documentation. No [...]
 
 ---
 
@@ -135,7 +135,7 @@ for i, chunk in enumerate(results, 1):
 ### File 3 — `it_agent.py`
 
 **Purpose**  
-The core AI agent. Retrieves relevant documentation chunks for each user issue, injects them into the local LLM's system prompt as grounded context, and maintains multi-turn conversation history for coherent troubleshooting threads.
+The core AI agent. Retrieves relevant documentation chunks for each user issue, injects them into the local LLM's system prompt as grounded context, and maintains multi-turn conversation history [...]
 
 **System Prompt Design**
 - Context is injected as numbered excerpts so the LLM can reference them
@@ -202,8 +202,8 @@ python main.py
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/saberdhaouadi/AI-RAG-angentic-IT.git
-   cd AI-RAG-angentic-IT
+   git clone https://github.com/saberdhaouadi/IT-Support-RAG-Agent.git
+   cd IT-Support-RAG-Agent
    ```
 
 2. **Create virtual environment**
