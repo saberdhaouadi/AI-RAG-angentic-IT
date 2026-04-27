@@ -1,73 +1,95 @@
 """
-it_agent.py — Step 3: IT Support AI Agent with RAG
-===================================================
-Uses Claude (via the Anthropic API) together with a VectorStore
+it_agent.py — IT Support AI Agent with RAG (Local Gemma via Ollama)
+====================================================================
+Uses a local Gemma model (via Ollama) together with a VectorStore
 to answer IT issues grounded in your documentation.
 
-Install:
-    pip install anthropic --break-system-packages
-    export ANTHROPIC_API_KEY="sk-ant-..."
+Setup:
+    curl -fsSL https://ollama.com/install.sh | sh
+    ollama serve
+    ollama pull gemma3
+    pip install ollama --break-system-packages
+
+Run:
+    python it_agent.py
 """
 
-import anthropic
+import ollama
 import os
 from vector_store import VectorStore
+
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3")
 
 
 class ITSupportAgent:
     """
-    Conversational IT support agent backed by RAG.
+    Conversational IT support agent backed by RAG using a local Gemma model.
 
     Workflow per turn:
       1. Embed the user's issue and retrieve relevant doc chunks.
       2. Build a system prompt containing retrieved context.
-      3. Send conversation history + new message to Claude.
-      4. Append Claude's reply to history for multi-turn support.
-
-    Attributes:
-        vs:                   VectorStore instance for retrieval.
-        client:               Anthropic API client.
-        conversation_history: Full multi-turn conversation list.
-        top_k:                Number of chunks to retrieve per query.
+      3. Send conversation history + new message to local Gemma via Ollama.
+      4. Append Gemma's reply to history for multi-turn support.
     """
 
-    def __init__(self, vector_store: VectorStore, top_k: int = 5):
+    def __init__(self, vector_store: VectorStore, top_k: int = 5,
+                 model: str = OLLAMA_MODEL):
         """
         Initialise the agent.
 
         Args:
             vector_store: Pre-built or pre-loaded VectorStore.
             top_k:        How many document chunks to retrieve per query.
+            model:        Ollama model tag (default: env OLLAMA_MODEL or "gemma3").
         """
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            raise EnvironmentError(
-                "ANTHROPIC_API_KEY environment variable is not set.\n"
-                "Run: export ANTHROPIC_API_KEY='sk-ant-...'"
-            )
+        self._check_ollama_available(model)
 
         self.vs = vector_store
-        self.client = anthropic.Anthropic(api_key=api_key)
+        self.model = model
         self.conversation_history: list[dict] = []
         self.top_k = top_k
+        print(f"✅  Using local model: {self.model}")
+
+    # ── Ollama health check ──────────────────────────────────────
+
+    @staticmethod
+    def _check_ollama_available(model: str) -> None:
+        """
+        Verify Ollama is running and the requested model is pulled.
+        Compatible with both old (dict) and new (object) Ollama SDK versions.
+        """
+        try:
+            response = ollama.list()
+            # New SDK: response.models is a list of objects with .model attribute
+            # Old SDK: response["models"] is a list of dicts with "name" key
+            if hasattr(response, "models"):
+                available = [m.model for m in response.models]
+            else:
+                available = [m["name"] for m in response["models"]]
+        except Exception as exc:
+            raise RuntimeError(
+                "Cannot connect to Ollama. Make sure it is running:\n"
+                "    ollama serve\n"
+                f"Original error: {exc}"
+            ) from exc
+
+        model_base = model.split(":")[0]
+        matched = any(m.split(":")[0] == model_base for m in available)
+        if not matched:
+            raise RuntimeError(
+                f"Model '{model}' not found in Ollama.\n"
+                f"Pull it with:  ollama pull {model}\n"
+                f"Available models: {available}"
+            )
 
     # ── Retrieval ────────────────────────────────────────────────
 
     def retrieve_context(self, query: str) -> str:
-        """
-        Retrieve top-k relevant chunks and format as a context block.
-
-        Args:
-            query: The user's IT issue description.
-
-        Returns:
-            Formatted string of retrieved documentation excerpts.
-        """
+        """Retrieve top-k relevant chunks and format as a context block."""
         chunks = self.vs.search(query, top_k=self.top_k)
         if not chunks:
             return "No relevant documentation found."
 
-        # Number each excerpt so the model can reference them
         sections = [f"[Excerpt {i+1}]\n{chunk}" for i, chunk in enumerate(chunks)]
         return "\n\n---\n\n".join(sections)
 
@@ -105,29 +127,31 @@ Response guidelines:
         Returns:
             Agent's solution as a formatted string.
         """
-        # Step 1: Retrieve relevant documentation
         context = self.retrieve_context(user_issue)
-
-        # Step 2: Build dynamic system prompt with retrieved context
         system_prompt = self._build_system_prompt(context)
 
-        # Step 3: Append user message to history
         self.conversation_history.append({
             "role": "user",
             "content": user_issue,
         })
 
-        # Step 4: Call Claude with full conversation history
-        response = self.client.messages.create(
-            model="claude-opus-4-5",
-            max_tokens=1024,
-            system=system_prompt,
-            messages=self.conversation_history,
+        messages_with_system = [
+            {"role": "system", "content": system_prompt},
+            *self.conversation_history,
+        ]
+
+        response = ollama.chat(
+            model=self.model,
+            messages=messages_with_system,
+            options={
+                "temperature": 0.3,   # lower = more factual/deterministic
+                "num_predict": 1024,  # max tokens to generate
+                "top_p": 0.9,
+            },
         )
 
-        assistant_reply = response.content[0].text
+        assistant_reply = response["message"]["content"]
 
-        # Step 5: Store reply for multi-turn continuity
         self.conversation_history.append({
             "role": "assistant",
             "content": assistant_reply,
@@ -145,13 +169,13 @@ Response guidelines:
 
 # ── Example usage ────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Load pre-built knowledge base
     vs = VectorStore()
     vs.load("it_knowledge_base")
 
     agent = ITSupportAgent(vs, top_k=5)
 
-    print("🤖  IT Support Agent ready. Type 'exit' to quit, 'reset' to clear history.\n")
+    print(f"\n🤖  IT Support Agent ready (model: {agent.model}).")
+    print("    Type 'exit' to quit, 'reset' to clear history.\n")
 
     while True:
         issue = input("🖥️  Your IT issue: ").strip()
@@ -169,4 +193,3 @@ if __name__ == "__main__":
         solution = agent.solve(issue)
         print(solution)
         print("\n" + "─" * 60 + "\n")
-

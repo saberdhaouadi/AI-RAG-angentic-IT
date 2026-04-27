@@ -1,83 +1,94 @@
 """
-main.py — Step 4: Full Pipeline Orchestrator
-=============================================
-Ties together ingestion, indexing, and the agent.
-Run this file to build the knowledge base and start
-the interactive IT support session.
+main.py — Full Pipeline Orchestrator (with Incremental Ingestion)
+=================================================================
 
 Usage:
-    # Build index from PDFs (first run)
-    python main.py --build --pdfs runbook.pdf network_guide.pdf error_codes.pdf
+    # First run — build index from PDFs
+    python main.py --build --pdfs doc1.pdf doc2.pdf
+
+    # Add new PDFs to existing index WITHOUT rebuilding
+    python main.py --add --pdfs new_doc.pdf another_doc.pdf
+
+    # List all ingested sources
+    python main.py --list
+
+    # Remove a source from the index
+    python main.py --remove doc1.pdf
 
     # Start agent with existing index
     python main.py
 
-    # Rebuild index and start agent
-    python main.py --build --pdfs runbook.pdf
+    # Use a specific Gemma variant
+    python main.py --model gemma3:27b
 
 Install all dependencies:
-    pip install pypdf langchain sentence-transformers faiss-cpu numpy anthropic \
+    pip install pypdf langchain-text-splitters sentence-transformers faiss-cpu numpy ollama \
         --break-system-packages
-    export ANTHROPIC_API_KEY="sk-ant-..."
+    curl -fsSL https://ollama.com/install.sh | sh
+    ollama pull gemma3
 """
 
 import argparse
 import os
 import sys
 
-from ingest_pdf import ingest_multiple_pdfs
+from ingest import ingest_pdf, ingest_multiple_pdfs
 from vector_store import VectorStore
 from it_agent import ITSupportAgent
 
-# ── Constants ────────────────────────────────────────────────────
-INDEX_PATH = "it_knowledge_base"   # base filename for FAISS index + chunks
-DEFAULT_PDFS = [                   # fallback PDF list if none passed via CLI
-    "runbook.pdf",
-    "network_guide.pdf",
-    "error_codes.pdf",
-]
+INDEX_PATH = "it_knowledge_base"
+DEFAULT_PDFS = ["runbook.pdf", "network_guide.pdf", "error_codes.pdf"]
 
 
-# ── Build phase ──────────────────────────────────────────────────
+# ── Build (from scratch) ─────────────────────────────────────────
 
 def build_knowledge_base(pdf_paths: list[str]) -> VectorStore:
-    """
-    Ingest PDFs, embed chunks, build FAISS index, and save to disk.
-
-    Args:
-        pdf_paths: List of paths to PDF documents.
-
-    Returns:
-        Populated VectorStore instance.
-    """
+    """Ingest all PDFs and build a brand-new FAISS index."""
     print("\n" + "═" * 60)
-    print("  PHASE 1 — PDF INGESTION")
+    print("  PHASE 1 — PDF INGESTION (full rebuild)")
     print("═" * 60)
-    chunks = ingest_multiple_pdfs(pdf_paths)
 
-    if not chunks:
-        print("❌  No chunks produced. Check your PDF paths and content.")
+    vs = VectorStore()
+    for path in pdf_paths:
+        try:
+            chunks = ingest_pdf(path)
+            vs.add_chunks(chunks, source=os.path.basename(path))
+        except (FileNotFoundError, ValueError) as e:
+            print(f"⚠️   Skipping {path}: {e}")
+
+    if not vs.chunks:
+        print("❌  No chunks produced. Check your PDF paths.")
         sys.exit(1)
 
-    print("\n" + "═" * 60)
-    print("  PHASE 2 — EMBEDDING & INDEXING")
-    print("═" * 60)
-    vs = VectorStore()
-    vs.build_index(chunks)
     vs.save(INDEX_PATH)
-
     return vs
 
 
-# ── Load phase ───────────────────────────────────────────────────
+# ── Add (incremental) ────────────────────────────────────────────
+
+def add_to_knowledge_base(pdf_paths: list[str]) -> VectorStore:
+    """Load existing index and append new PDFs without rebuilding."""
+    print("\n" + "═" * 60)
+    print("  INCREMENTAL INGESTION — adding to existing index")
+    print("═" * 60)
+
+    vs = load_knowledge_base()
+
+    for path in pdf_paths:
+        try:
+            chunks = ingest_pdf(path)
+            vs.add_chunks(chunks, source=os.path.basename(path))
+        except (FileNotFoundError, ValueError) as e:
+            print(f"⚠️   Skipping {path}: {e}")
+
+    vs.save(INDEX_PATH)
+    return vs
+
+
+# ── Load ─────────────────────────────────────────────────────────
 
 def load_knowledge_base() -> VectorStore:
-    """
-    Load an existing FAISS index from disk.
-
-    Returns:
-        Populated VectorStore instance.
-    """
+    """Load an existing FAISS index from disk."""
     index_file = f"{INDEX_PATH}.index"
     if not os.path.exists(index_file):
         print(f"❌  No index found at '{index_file}'.")
@@ -89,22 +100,28 @@ def load_knowledge_base() -> VectorStore:
     return vs
 
 
+# ── Remove source ────────────────────────────────────────────────
+
+def remove_source(source: str) -> VectorStore:
+    """Remove a PDF source from the index and save."""
+    vs = load_knowledge_base()
+    vs.remove_source(source)
+    vs.save(INDEX_PATH)
+    return vs
+
+
 # ── Interactive agent loop ───────────────────────────────────────
 
-def run_agent(vs: VectorStore) -> None:
-    """
-    Start the interactive IT support session.
-
-    Args:
-        vs: Loaded VectorStore to use for retrieval.
-    """
-    agent = ITSupportAgent(vs, top_k=5)
+def run_agent(vs: VectorStore, model: str) -> None:
+    """Start the interactive IT support session."""
+    agent = ITSupportAgent(vs, top_k=5, model=model)
 
     print("\n" + "═" * 60)
-    print("  IT SUPPORT AGENT — READY")
+    print(f"  IT SUPPORT AGENT — READY  [{agent.model}]")
     print("═" * 60)
     print("Commands:  'exit' | 'quit' → end session")
     print("           'reset'         → clear conversation history")
+    print("           'sources'       → list ingested documents")
     print("─" * 60 + "\n")
 
     while True:
@@ -116,13 +133,17 @@ def run_agent(vs: VectorStore) -> None:
 
         if not issue:
             continue
-
         if issue.lower() in ("exit", "quit"):
             print("👋  Goodbye!")
             break
-
         if issue.lower() == "reset":
             agent.reset_conversation()
+            continue
+        if issue.lower() == "sources":
+            print("\n📄  Ingested sources:")
+            for s in vs.list_sources():
+                print(f"    • {s}")
+            print()
             continue
 
         print("\n🤖  Agent:\n")
@@ -135,38 +156,65 @@ def run_agent(vs: VectorStore) -> None:
         print("\n" + "─" * 60 + "\n")
 
 
-# ── Entry point ──────────────────────────────────────────────────
+# ── CLI ──────────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="IT Support RAG Agent",
+        description="IT Support RAG Agent — powered by local Gemma (Ollama)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
     parser.add_argument(
-        "--build",
-        action="store_true",
-        help="Ingest PDFs and rebuild the FAISS index before starting the agent.",
-    )
+        "--build", action="store_true",
+        help="Ingest PDFs and rebuild the index from scratch.")
     parser.add_argument(
-        "--pdfs",
-        nargs="+",
-        metavar="PDF",
-        default=DEFAULT_PDFS,
-        help="PDF file paths to ingest (only used with --build).",
-    )
+        "--add", action="store_true",
+        help="Add new PDFs to the existing index (no rebuild).")
+    parser.add_argument(
+        "--list", action="store_true",
+        help="List all ingested sources and exit.")
+    parser.add_argument(
+        "--remove", metavar="SOURCE",
+        help="Remove a source (PDF filename) from the index, then start agent.")
+    parser.add_argument(
+        "--pdfs", nargs="+", metavar="PDF", default=DEFAULT_PDFS,
+        help="PDF file paths to ingest (used with --build or --add).")
+    parser.add_argument(
+        "--model", default=os.getenv("OLLAMA_MODEL", "gemma3"), metavar="MODEL",
+        help="Ollama model tag. Examples: gemma3, gemma3:12b, gemma3:27b")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
 
+    # --list: just print sources and exit
+    if args.list:
+        vs = load_knowledge_base()
+        print("\n📄  Ingested sources:")
+        for s in vs.list_sources():
+            print(f"    • {s}")
+        return
+
+    # --remove: drop a source, save, then start agent
+    if args.remove:
+        vs = remove_source(args.remove)
+        run_agent(vs, model=args.model)
+        return
+
+    # --build: full rebuild
     if args.build:
         vs = build_knowledge_base(args.pdfs)
+
+    # --add: incremental
+    elif args.add:
+        vs = add_to_knowledge_base(args.pdfs)
+
+    # default: load existing index
     else:
         vs = load_knowledge_base()
 
-    run_agent(vs)
+    run_agent(vs, model=args.model)
 
 
 if __name__ == "__main__":

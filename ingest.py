@@ -1,15 +1,15 @@
 """
-ingest_pdf.py — Step 1: PDF Ingestion & Chunking
-================================================
+ingest.py — Step 1: PDF Ingestion & Chunking
+============================================
 Extracts text from PDF files and splits them into
 overlapping chunks suitable for embedding.
 
 Install:
-    pip install pypdf langchain --break-system-packages
+    pip install pypdf langchain-text-splitters --break-system-packages
 """
 
 from pypdf import PdfReader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import os
 
 
@@ -38,14 +38,10 @@ def ingest_pdf(pdf_path: str) -> list[str]:
         raise ValueError(f"No extractable text found in: {pdf_path}")
 
     # ── 2. Chunk the text ────────────────────────────────────────
-    # Chunk size guidelines for IT documents:
-    #   - Error codes / API refs  → 200–300 tokens
-    #   - Runbooks / procedures   → 500–700 tokens
-    #   - Architecture docs       → 800–1000 tokens
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,         # tokens per chunk
-        chunk_overlap=50,       # overlap to preserve context at boundaries
-        separators=["\n\n", "\n", ".", " "]  # split order: paragraphs first
+        chunk_size=500,
+        chunk_overlap=50,
+        separators=["\n\n", "\n", ".", " "]
     )
     chunks = splitter.split_text(raw_text)
 
@@ -77,15 +73,14 @@ def ingest_multiple_pdfs(pdf_paths: list[str]) -> list[str]:
 
 # ── Example usage ────────────────────────────────────────────────
 if __name__ == "__main__":
-    # Replace with your actual PDF paths
-    pdfs = [
-        "runbook.pdf",
-        "network_guide.pdf",
-        "error_codes.pdf",
-    ]
+    import sys
 
+    if len(sys.argv) < 2:
+        print("Usage: python3 ingest.py file1.pdf file2.pdf ...")
+        sys.exit(1)
+
+    pdfs = sys.argv[1:]
     chunks = ingest_multiple_pdfs(pdfs)
 
-    # Preview first 3 chunks
     for i, chunk in enumerate(chunks[:3], 1):
         print(f"\n─── Chunk {i} ───\n{chunk[:300]}...")
