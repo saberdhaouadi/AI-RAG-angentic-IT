@@ -2,7 +2,7 @@
 
 > **RAG-Powered Document Ingestion & Intelligent Troubleshooting for IT Support**
 
-An enterprise-grade AI agent that uses Retrieval-Augmented Generation (RAG) to provide grounded, document-backed IT support solutions. Powered by local LLMs (Gemma3/Gemma4), FAISS vector search, and LangChain.
+An enterprise-grade AI agent that uses Retrieval-Augmented Generation (RAG) to provide grounded, document-backed IT support solutions. Powered by local LLMs (Gemma3/Gemma4), FAISS vector search, and multi-turn conversation memory — runs entirely on your machine.
 
 ---
 
@@ -12,6 +12,7 @@ An enterprise-grade AI agent that uses Retrieval-Augmented Generation (RAG) to p
 - [Architecture Overview](#architecture-overview)
 - [Components](#components)
 - [Installation](#installation)
+- [System Requirements](#system-requirements)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
 - [Usage Examples](#usage-examples)
@@ -49,22 +50,22 @@ The RAG pipeline connects four stages: PDF ingestion, embedding, vector storage,
 └─────────────┘     └──────────────┘     └──────────────┘     └─────────────────┘
                                                                         ▲
                                                                         │
-                                     ┌──────────────────────────────────┤
-                                     │                                  │
-                          ┌──────────▼──────────┐           ┌──────────┴──────────────┐
-                          │   User Query        │           │  it_agent.py            │
-                          │  (IT Issue)         │────────┬──▶│  (Local LLM RAG Agent)  │
-                          └─────────────────────┘        │   │  (Gemma3/Gemma4)       │
-                                                         │   └─────────────────────────┘
-                                                         │            │
-                                                         │            ▼
-                                                         │   ┌──────────────────┐
-                                                         │   │ Grounded Answer  │
-                                                         └──▶│ + Citations      │
-                                                             └──────────────────┘
+                                      ┌──────────────────────────────────┤
+                                      │                                  │
+                           ┌──────────▼──────────┐           ┌──────────┴──────────────┐
+                           │   User Query        │           │  it_agent.py            │
+                           │  (IT Issue)         │────────┬──▶│  (Local LLM RAG Agent)  │
+                           └─────────────────────┘        │   │  (Gemma3/Gemma4)       │
+                                                          │   └─────────────────────────┘
+                                                          │            │
+                                                          │            ▼
+                                                          │   ┌──────────────────┐
+                                                          │   │ Grounded Answer  │
+                                                          └──▶│ + Citations      │
+                                                              └──────────────────┘
 ```
 
-💡 **Key Idea**: The local LLM only sees the most relevant document chunks per query — not the entire PDF. This keeps responses fast, accurate, and directly grounded in your documentation. No external APIs required.
+💡 **Key Idea**: The local LLM only sees the most relevant document chunks per query — not the entire PDF. This keeps responses fast, accurate, and directly grounded in your documentation. No external API calls, no data leakage.
 
 ---
 
@@ -134,7 +135,7 @@ for i, chunk in enumerate(results, 1):
 ### File 3 — `it_agent.py`
 
 **Purpose**  
-The core AI agent. Retrieves relevant documentation chunks for each user issue, injects them into the local LLM's system prompt as grounded context, and maintains multi-turn conversation history for follow-ups. Uses Gemma3/Gemma4 via Ollama or compatible local inference servers.
+The core AI agent. Retrieves relevant documentation chunks for each user issue, injects them into the local LLM's system prompt as grounded context, and maintains multi-turn conversation history for coherent troubleshooting threads.
 
 **System Prompt Design**
 - Context is injected as numbered excerpts so the LLM can reference them
@@ -236,6 +237,44 @@ The project requires:
 - `ollama` or `openai` (for local LLM compatibility)
 
 See `requirements.txt` for pinned versions.
+
+---
+
+## System Requirements
+
+Here are the full system requirements to run this stack locally:
+
+### Minimum Requirements (gemma3 4B — default)
+
+| Component | Minimum |
+|---|---|
+| RAM | 8 GB |
+| Disk | 10 GB free (5GB model + index + OS) |
+| CPU | 4-core x86_64 (Intel/AMD) |
+| GPU | None required — CPU-only works |
+| OS | Ubuntu 20.04+, macOS 12+, Windows 10/11 (WSL2) |
+| Python | 3.10+ |
+
+⚠️ **CPU-only inference on 4B is slow** — expect 15–60 seconds per response depending on hardware.
+
+### Recommended (for decent speed)
+
+| Component | Recommended |
+|---|---|
+| RAM | 16 GB |
+| GPU | NVIDIA GPU with 8 GB VRAM (e.g. RTX 3060/4060) |
+| Disk | 20 GB free |
+| CPU | 8-core modern CPU |
+
+✅ **With an 8GB VRAM GPU, responses drop to 2–5 seconds.**
+
+### By Model Variant
+
+| Model | RAM (CPU) | VRAM (GPU) | Speed |
+|---|---|---|---|
+| gemma3 (4B) | 8 GB | 4–6 GB | Fastest |
+| gemma3:12b | 16 GB | 10–12 GB | Balanced |
+| gemma3:27b | 32 GB | 20–24 GB | Best quality |
 
 ---
 
@@ -403,9 +442,9 @@ python main.py --build --pdfs docs/*.pdf
 ### Issue: "Slow embedding or search"
 **Solutions:**
 - Use `faiss-cpu` for development; switch to GPU version for scale:
-  ```bash
-  pip install faiss-gpu
-  ```
+   ```bash
+   pip install faiss-gpu
+   ```
 - Switch to faster (but lower-quality) embeddings: `all-MiniLM-L6-v2`
 - Try a smaller Gemma model: `gemma:2b` instead of `gemma:7b`
 
