@@ -2,7 +2,7 @@
 
 > **RAG-Powered Document Ingestion & Intelligent Troubleshooting for IT Support**
 
-An enterprise-grade AI agent that uses Retrieval-Augmented Generation (RAG) to provide grounded, document-backed IT support solutions. Powered by Claude, FAISS vector search, and LangChain.
+An enterprise-grade AI agent that uses Retrieval-Augmented Generation (RAG) to provide grounded, document-backed IT support solutions. Powered by local LLMs (Gemma3/Gemma4), FAISS vector search, and LangChain.
 
 ---
 
@@ -31,38 +31,40 @@ Traditional chatbots either:
 
 This RAG solution:
 ✅ **Grounds every answer** in your actual IT documentation  
-✅ **Cites sources** — Claude references specific excerpts  
+✅ **Cites sources** — local LLM references specific excerpts  
 ✅ **Stays current** — re-ingest PDFs as documentation updates  
 ✅ **Fast retrieval** — millisecond vector similarity search  
+✅ **Privacy-first** — runs entirely on local LLMs (Gemma3/Gemma4), no external API calls
 
 ---
 
 ## Architecture Overview
 
-The RAG pipeline connects four stages: PDF ingestion, embedding, vector storage, and AI generation. Each stage feeds the next, giving Claude grounded, document-backed answers.
+The RAG pipeline connects four stages: PDF ingestion, embedding, vector storage, and AI generation. Each stage feeds the next, giving your local LLM grounded, document-backed answers.
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌─────────────┐
-│ PDF Files   │────▶│ Chunk & Parse│────▶│  Embeddings  │────▶│ Vector Store│
-│             │     │ (ingest_pdf) │     │(SentenceXForm)     │   (FAISS)   │
-└─────────────┘     └──────────────┘     └──────────────┘     └─────────────┘
-                                                                       ▲
-                                                                       │
-                                    ┌──────────────────────────────────┤
-                                    │                                  │
-                         ┌──────────▼──────────┐           ┌──────────┴──────────┐
-                         │   User Query        │           │  it_agent.py        │
-                         │  (IT Issue)         │────────┬──▶│  (Claude RAG Agent) │
-                         └─────────────────────┘        │   └─────────────────────┘
-                                                        │            │
-                                                        │            ▼
-                                                        │   ┌──────────────────┐
-                                                        │   │ Grounded Answer  │
-                                                        └──▶│ + Citations      │
-                                                            └──────────────────┘
+┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌─────────────────┐
+│ PDF Files   │────▶│ Chunk & Parse│────▶│  Embeddings  │────▶│ Vector Store    │
+│             │     │ (ingest_pdf) │     │(SentenceXForm)     │   (FAISS)       │
+└─────────────┘     └──────────────┘     └──────────────┘     └─────────────────┘
+                                                                        ▲
+                                                                        │
+                                     ┌──────────────────────────────────┤
+                                     │                                  │
+                          ┌──────────▼──────────┐           ┌──────────┴──────────────┐
+                          │   User Query        │           │  it_agent.py            │
+                          │  (IT Issue)         │────────┬──▶│  (Local LLM RAG Agent)  │
+                          └─────────────────────┘        │   │  (Gemma3/Gemma4)       │
+                                                         │   └─────────────────────────┘
+                                                         │            │
+                                                         │            ▼
+                                                         │   ┌──────────────────┐
+                                                         │   │ Grounded Answer  │
+                                                         └──▶│ + Citations      │
+                                                             └──────────────────┘
 ```
 
-💡 **Key Idea**: Claude only sees the most relevant document chunks per query — not the entire PDF. This keeps responses fast, accurate, and directly grounded in your documentation.
+💡 **Key Idea**: The local LLM only sees the most relevant document chunks per query — not the entire PDF. This keeps responses fast, accurate, and directly grounded in your documentation. No external APIs required.
 
 ---
 
@@ -132,11 +134,11 @@ for i, chunk in enumerate(results, 1):
 ### File 3 — `it_agent.py`
 
 **Purpose**  
-The core AI agent. Retrieves relevant documentation chunks for each user issue, injects them into Claude's system prompt as grounded context, and maintains multi-turn conversation history for follow-up questions.
+The core AI agent. Retrieves relevant documentation chunks for each user issue, injects them into the local LLM's system prompt as grounded context, and maintains multi-turn conversation history for follow-ups. Uses Gemma3/Gemma4 via Ollama or compatible local inference servers.
 
 **System Prompt Design**
-- Context is injected as numbered excerpts so Claude can reference them
-- Claude is instructed to cite excerpt numbers in its response
+- Context is injected as numbered excerpts so the LLM can reference them
+- LLM is instructed to cite excerpt numbers in its response
 - Explicit instruction: do NOT fabricate information outside the context
 - Always ends with a Verification section to confirm the fix worked
 
@@ -146,8 +148,8 @@ from it_agent import ITAgent
 
 agent = ITAgent(
     vector_store=vs,
-    api_key="sk-ant-...",
-    model="claude-3-5-sonnet-20241022"
+    model="gemma:7b",  # Local Gemma model via Ollama
+    base_url="http://localhost:11434"  # Ollama server
 )
 
 # Multi-turn conversation
@@ -193,7 +195,7 @@ python main.py
 
 ### Prerequisites
 - Python 3.9+
-- Anthropic API key
+- Local LLM server running Gemma3/Gemma4 (via Ollama, LM Studio, or similar)
 
 ### Setup
 
@@ -214,9 +216,14 @@ python main.py
    pip install -r requirements.txt
    ```
 
-4. **Set environment variable**
+4. **Set up local LLM (Ollama example)**
    ```bash
-   export ANTHROPIC_API_KEY="your-api-key-here"
+   # Install Ollama from https://ollama.ai
+   # Pull Gemma model
+   ollama pull gemma:7b
+   
+   # Start Ollama server (runs on http://localhost:11434 by default)
+   ollama serve
    ```
 
 ### Dependencies
@@ -226,7 +233,7 @@ The project requires:
 - `langchain` — LLM orchestration
 - `sentence-transformers` — embedding model
 - `faiss-cpu` — vector similarity search
-- `anthropic` — Claude API client
+- `ollama` or `openai` (for local LLM compatibility)
 
 See `requirements.txt` for pinned versions.
 
@@ -238,19 +245,23 @@ See `requirements.txt` for pinned versions.
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Set your API key
-export ANTHROPIC_API_KEY="your-key"
+# 2. Start your local LLM server (Ollama)
+# In a separate terminal:
+ollama serve
 
-# 3. Place IT documentation PDFs in the project folder
+# 3. Pull Gemma model if not already done
+ollama pull gemma:7b
+
+# 4. Place IT documentation PDFs in the project folder
 cp /path/to/your/docs/*.pdf ./docs/
 
-# 4. Build the vector index (run once)
+# 5. Build the vector index (run once)
 python main.py --build --pdfs docs/*.pdf
 
-# 5. Start the agent
+# 6. Start the agent
 python main.py
 
-# 6. Describe an IT issue and get a grounded solution
+# 7. Describe an IT issue and get a grounded solution
 > Our production database is unresponsive. What's the diagnostic process?
 ```
 
@@ -261,7 +272,8 @@ python main.py
 ### Environment Variables
 
 ```bash
-ANTHROPIC_API_KEY      # Required: Your Claude API key
+LOCAL_LLM_BASE_URL     # Optional: Base URL for local LLM (default: http://localhost:11434)
+LOCAL_LLM_MODEL        # Optional: Model name (default: gemma:7b)
 FAISS_INDEX_PATH       # Optional: Path to vector store (default: ./faiss_index)
 CHUNK_SIZE             # Optional: Tokens per chunk (default: 500)
 CHUNK_OVERLAP          # Optional: Chunk overlap in tokens (default: 50)
@@ -285,8 +297,10 @@ model_name = "all-MiniLM-L6-v2"  # Faster but lower accuracy
 
 **`it_agent.py`**
 ```python
-top_k = 5               # Number of retrieved chunks (increase for recall, decrease for brevity)
-temperature = 0.3       # Lower = more deterministic, higher = more creative
+model = "gemma:7b"               # Local model name
+base_url = "http://localhost:11434"  # Ollama server URL
+top_k = 5                        # Number of retrieved chunks (increase for recall, decrease for brevity)
+temperature = 0.3                # Lower = more deterministic, higher = more creative
 ```
 
 ---
@@ -347,11 +361,24 @@ AND query_start < NOW() - INTERVAL '30 minutes';
 
 ## Troubleshooting
 
-### Issue: "ANTHROPIC_API_KEY not set"
+### Issue: "Connection refused to localhost:11434"
 **Solution:**
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-echo $ANTHROPIC_API_KEY  # Verify it's set
+# Ensure Ollama is running:
+ollama serve
+
+# Or start it in a separate terminal and verify:
+curl http://localhost:11434/api/tags
+```
+
+### Issue: "Model 'gemma:7b' not found"
+**Solution:**
+```bash
+# Pull the model first
+ollama pull gemma:7b
+
+# List available models:
+ollama list
 ```
 
 ### Issue: "No such file or directory: faiss_index"
@@ -380,6 +407,7 @@ python main.py --build --pdfs docs/*.pdf
   pip install faiss-gpu
   ```
 - Switch to faster (but lower-quality) embeddings: `all-MiniLM-L6-v2`
+- Try a smaller Gemma model: `gemma:2b` instead of `gemma:7b`
 
 ---
 
@@ -400,7 +428,7 @@ For production deployments, consider these upgrades across six key areas:
 1. **Month 1:** Add metadata to chunks (quick win)
 2. **Month 2:** Implement cross-encoder reranking for precision
 3. **Month 3:** Migrate to Pinecone for scale
-4. **Month 4:** Upgrade to `text-embedding-3-large` for accuracy
+4. **Month 4:** Optimize embedding model and local LLM for inference speed
 
 ---
 
@@ -421,6 +449,7 @@ Contributions are welcome! Please:
 - [ ] Create Docker containerization
 - [ ] Build web UI for agent
 - [ ] Add eval framework for answer quality
+- [ ] Support for other local LLMs (Llama, Mistral, etc.)
 
 ---
 
@@ -430,7 +459,7 @@ Contributions are welcome! Please:
 |---|---|
 | `ingest_pdf.py` | PDF parsing & chunking with overlap |
 | `vector_store.py` | SentenceTransformer embeddings & FAISS indexing |
-| `it_agent.py` | Claude RAG agent with multi-turn memory |
+| `it_agent.py` | Local LLM RAG agent with multi-turn memory |
 | `main.py` | CLI orchestrator & interactive REPL |
 | `requirements.txt` | Python dependencies |
 
@@ -447,7 +476,8 @@ This project is licensed under the MIT License. See LICENSE file for details.
 - **Issues:** Open a GitHub issue for bugs or feature requests
 - **Docs:** See Architecture Overview for design details
 - **Questions:** Check Troubleshooting section first
+- **Local LLM Setup:** See [Ollama Documentation](https://ollama.ai)
 
 ---
 
-**Built with ❤️ for IT teams who want grounded, accurate support automation.**
+**Built with ❤️ for IT teams who want grounded, accurate, privacy-respecting support automation with local LLMs.**
